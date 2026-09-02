@@ -2,17 +2,10 @@ import io
 import os
 import re
 import pandas as pd
-from location_map import account_location_map
+from location_store import get_full_map
 
 
 def process_file(filename: str, file_bytes: bytes):
-    """
-    Same detection logic as your original main.py, but works fully
-    in-memory (BytesIO) instead of reading/moving files on disk.
-
-    Returns: (status, new_filename, output_bytes, error_message)
-      status is "success" or "failed"
-    """
     ext = os.path.splitext(filename)[1].lower()
 
     try:
@@ -42,7 +35,7 @@ def process_file(filename: str, file_bytes: bytes):
                 break
 
         if account_number:
-            location = account_location_map.get(account_number)
+            location = get_full_map().get(account_number)
             new_filename = (
                 f"{account_number}_{location}{ext}"
                 if location

@@ -1,0 +1,14 @@
+# Desktop-only extras. Do NOT merge into your Render requirements.txt.
+# Your existing web app dependencies (gradio, pandas, openpyxl, xlrd, pyxlsb, requests)
+# still need to be installed too, since desktop.py imports app.py directly.
+
+pywebview
+pyinstaller
+
+# --- keep these in sync with your existing web requirements.txt ---
+gradio
+pandas
+openpyxl
+xlrd
+pyxlsb
+requests
