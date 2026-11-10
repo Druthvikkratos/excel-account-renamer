@@ -8,6 +8,7 @@ Package into an .exe with: pyinstaller --onefile --windowed --name AccountRename
 import time
 import socket
 import webview
+import multiprocessing
 
 # Must match app.py's filename and the Gradio Blocks variable name
 from app import demo
@@ -69,4 +70,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

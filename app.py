@@ -8,6 +8,8 @@ import gradio as gr
 import pandas as pd
 
 from processor import process_file
+from concurrent.futures import ThreadPoolExecutor
+
 import location_store
 
 CUSTOM_CSS = """
@@ -60,50 +62,40 @@ def on_files_change(files):
 def process_files(files, session_tmp_dir):
     if session_tmp_dir and os.path.exists(session_tmp_dir):
         shutil.rmtree(session_tmp_dir, ignore_errors=True)
-
     if not files:
         return gr.update(value=None, visible=False), "⚠️ No files uploaded. Please upload at least one file.", session_tmp_dir
 
-    success_log, failed_log, used_names = [], [], set()
-    zip_buffer = io.BytesIO()
+    loc_map = location_store.get_full_map()         # once, not per file
+    jobs = [(os.path.basename(f.name), f.name, loc_map) for f in files]
+
     try:
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_obj in files:
-                original_name = os.path.basename(file_obj.name)
-                try:
-                    with open(file_obj.name, "rb") as f:
-                        file_bytes = f.read()
-                    status, new_name, out_bytes, error = process_file(original_name, file_bytes)
-                except Exception as e:
-                    status, new_name, out_bytes, error = "failed", original_name, b"", str(e)
-
-                final_name = new_name
-                counter = 1
-                base, ext = os.path.splitext(new_name)
-                while final_name in used_names:
-                    final_name = f"{base}_{counter}{ext}"
-                    counter += 1
-                used_names.add(final_name)
-
-                if status == "success":
-                    zf.writestr(final_name, out_bytes)
-                    success_log.append(f"✅ {original_name}  →  {final_name}")
-                else:
-                    zf.writestr(f"FAILED_{final_name}", out_bytes)
-                    failed_log.append(f"❌ {original_name}  —  {error}")
+        with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
+            results = list(ex.map(lambda j: process_file(*j), jobs))
     except Exception as e:
-        return gr.update(value=None, visible=False), f"⚠️ Unexpected error while processing files: {e}", session_tmp_dir
+        return gr.update(value=None, visible=False), f"⚠️ Unexpected error: {e}", session_tmp_dir
 
-    zip_buffer.seek(0)
     new_tmp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(new_tmp_dir, "renamed_files.zip")
-    with open(zip_path, "wb") as f:
-        f.write(zip_buffer.getvalue())
+    success_log, failed_log, used_names = [], [], set()
 
-    summary_lines = [f"Processed {len(files)} file(s): {len(success_log)} renamed, {len(failed_log)} failed.", ""]
-    summary_lines += success_log
-    summary_lines += failed_log
-    return gr.update(value=zip_path, visible=True), "\n".join(summary_lines), new_tmp_dir
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:   # no recompression
+        for f, (status, new_name, error) in zip(files, results):
+            original = os.path.basename(f.name)
+            base, ext = os.path.splitext(new_name)
+            final, n = new_name, 1
+            while final in used_names:
+                final = f"{base}_{n}{ext}"; n += 1
+            used_names.add(final)
+
+            if status == "success":
+                zf.write(f.name, final)
+                success_log.append(f"✅ {original}  →  {final}")
+            else:
+                zf.write(f.name, f"FAILED_{final}")
+                failed_log.append(f"❌ {original}  —  {error}")
+
+    lines = [f"Processed {len(files)} file(s): {len(success_log)} renamed, {len(failed_log)} failed.", ""]
+    return gr.update(value=zip_path, visible=True), "\n".join(lines + success_log + failed_log), new_tmp_dir
 
 
 def clear_all(session_tmp_dir):
